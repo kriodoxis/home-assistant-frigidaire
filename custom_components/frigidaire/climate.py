@@ -13,6 +13,10 @@ from homeassistant.components.climate.const import (
     FAN_LOW,
     FAN_MEDIUM,
     FAN_OFF,
+    PRESET_NONE,
+    PRESET_SLEEP,
+    SWING_OFF,
+    SWING_VERTICAL,
     HVACMode,
     ClimateEntityFeature,
 )
@@ -70,6 +74,16 @@ FRIGIDAIRE_TO_HA_MODE = {
     frigidaire.Mode.DRY: HVACMode.DRY,
 }
 
+FRIGIDAIRE_TO_HA_PRESET = {
+    frigidaire.SleepMode.OFF: PRESET_NONE,
+    frigidaire.SleepMode.ON: PRESET_SLEEP
+}
+
+FRIGIDAIRE_TO_HA_SWING = {
+    frigidaire.VerticalSwing.OFF: SWING_OFF,
+    frigidaire.VerticalSwing.ON: SWING_VERTICAL
+}
+
 FRIGIDAIRE_TO_HA_FAN_SPEED = {
     frigidaire.FanSpeed.AUTO: FAN_AUTO,
     frigidaire.FanSpeed.LOW: FAN_LOW,
@@ -87,6 +101,16 @@ HA_TO_FRIGIDAIRE_FAN_MODE = {
     FAN_LOW: frigidaire.FanSpeed.LOW,
     FAN_MEDIUM: frigidaire.FanSpeed.MEDIUM,
     FAN_HIGH: frigidaire.FanSpeed.HIGH,
+}
+
+HA_TO_FRIGIDAIRE_PRESET = {
+    PRESET_NONE: frigidaire.SleepMode.OFF,
+    PRESET_SLEEP: frigidaire.SleepMode.ON
+}
+
+HA_TO_FRIGIDAIRE_SWING = {
+    SWING_OFF: frigidaire.VerticalSwing.OFF,
+    SWING_VERTICAL: frigidaire.VerticalSwing.ON
 }
 
 HA_TO_FRIGIDAIRE_HVAC_MODE = {
@@ -119,13 +143,25 @@ class FrigidaireClimate(ClimateEntity):
         self._attr_supported_features = (ClimateEntityFeature.TARGET_TEMPERATURE |
                                          ClimateEntityFeature.FAN_MODE |
                                          ClimateEntityFeature.TURN_OFF |
-                                         ClimateEntityFeature.TURN_ON)
+                                         ClimateEntityFeature.TURN_ON |
+                                         ClimateEntityFeature.SWING_MODE |
+                                         ClimateEntityFeature.PRESET_MODE)
         self._attr_target_temperature_step = 1
 
         # Although we can access the Frigidaire API to get updates, they are
         # not reflected immediately after making a request. To improve the UX
         # around this, we set assume_state to True
         self._attr_assumed_state = True
+
+        self._attr_preset_modes = [
+            PRESET_NONE,
+            PRESET_SLEEP
+        ]
+
+        self._attr_swing_modes = [
+            SWING_OFF,
+            SWING_VERTICAL
+        ]
 
         self._attr_fan_modes = [
             FAN_AUTO,
@@ -185,6 +221,15 @@ class FrigidaireClimate(ClimateEntity):
         ))
 
         return FRIGIDAIRE_TO_HA_UNIT[unit]
+    
+    @property
+    def swing_mode(self):
+        """Return the swing setting."""
+        swing = _normalize_enum_value(self._details.get(
+            frigidaire.Detail.VERTICAL_SWING
+        ))
+
+        return FRIGIDAIRE_TO_HA_SWING[swing]
 
     @property
     def target_temperature(self):
@@ -193,12 +238,31 @@ class FrigidaireClimate(ClimateEntity):
             return self._details.get(frigidaire.Detail.TARGET_TEMPERATURE_F)
         else:
             return self._details.get(frigidaire.Detail.TARGET_TEMPERATURE_C)
+        
+    @property
+    def preset_mode(self):
+        """Return current preset mode."""
+        sleep = _normalize_enum_value(
+            self._details.get(frigidaire.Detail.SLEEP_MODE)
+        )
+        sleep_norm = _normalize_enum_value(sleep)
+        _LOGGER.debug("PRESET MODE: raw=%s, normalized=%s, mapped=%s", sleep, sleep_norm, FRIGIDAIRE_TO_HA_PRESET.get(sleep_norm))
+        return FRIGIDAIRE_TO_HA_PRESET[sleep_norm]
 
     @property
     def hvac_mode(self):
         """Return current operation i.e. heat, cool, idle."""
-        frigidaire_mode = _normalize_enum_value(self._details.get(frigidaire.Detail.MODE))
-
+        appliance_state = _normalize_enum_value(
+            self._details.get(frigidaire.Detail.APPLIANCE_STATE)
+        )
+        
+        if appliance_state in ["OFF", "DELAYED_START"]:
+            return HVACMode.OFF
+    
+        frigidaire_mode = _normalize_enum_value(
+            self._details.get(frigidaire.Detail.MODE)
+        )
+    
         return FRIGIDAIRE_TO_HA_MODE[frigidaire_mode]
 
     @property
@@ -265,11 +329,35 @@ class FrigidaireClimate(ClimateEntity):
         action = frigidaire.Action.set_fan_speed(HA_TO_FRIGIDAIRE_FAN_MODE[fan_mode])
         self._client.execute_action(self._appliance, action)
 
+    def set_preset_mode(self, preset_mode) -> None:
+        """Set new preset mode."""
+        if preset_mode == PRESET_SLEEP:
+            action = frigidaire.Action.set_sleep_mode(frigidaire.SleepMode.ON)
+        elif preset_mode == PRESET_NONE:
+            action = frigidaire.Action.set_sleep_mode(frigidaire.SleepMode.OFF)
+        else:
+            return
+
+        self._client.execute_action(self._appliance, action)
+
+    def set_swing_mode(self, preset_mode) -> None:
+        """Set new swing mode."""
+        if preset_mode == SWING_VERTICAL:
+            action = frigidaire.Action.set_vertical_swing(frigidaire.VerticalSwing.ON)
+        elif preset_mode == SWING_OFF:
+            action = frigidaire.Action.set_vertical_swing(frigidaire.VerticalSwing.OFF)
+        else:
+            return
+
+        self._client.execute_action(self._appliance, action)
+
     def set_hvac_mode(self, hvac_mode):
         """Set new target operation mode."""
+        _LOGGER.debug("Setting HVAC mode to %s", hvac_mode)
         if hvac_mode == HVACMode.OFF:
             self._client.execute_action(
-                self._appliance, frigidaire.Action.set_power(frigidaire.Power.OFF)
+                self._appliance,
+                frigidaire.Action.set_mode(frigidaire.Mode.OFF),
             )
             return
 
@@ -298,6 +386,7 @@ class FrigidaireClimate(ClimateEntity):
         """Retrieve latest state and updates the details."""
         try:
             details = self._client.get_appliance_details(self._appliance)
+            _LOGGER.debug("Retrieved details for appliance %s: %s", self._appliance.appliance_id, details)
             self._details = details
         except frigidaire.FrigidaireException:
             if self.available:
@@ -308,3 +397,54 @@ class FrigidaireClimate(ClimateEntity):
             # Check that we have a valid applianceState
             appliance_state = self._details.get(frigidaire.Detail.APPLIANCE_STATE)
             self._attr_available = appliance_state is not None
+            
+            # Log detailed mapping information
+            try:
+                appliance_state = self._details.get(frigidaire.Detail.APPLIANCE_STATE)
+                _LOGGER.debug("APPLIANCE_STATE: raw=%s", appliance_state)
+
+                temp_repr = self._details.get(frigidaire.Detail.TEMPERATURE_REPRESENTATION)
+                temp_repr_norm = _normalize_enum_value(temp_repr)
+                _LOGGER.debug("TEMPERATURE_REPRESENTATION: raw=%s, normalized=%s, mapped=%s", 
+                              temp_repr,
+                              temp_repr_norm,
+                              FRIGIDAIRE_TO_HA_UNIT.get(temp_repr_norm))
+                
+                mode = self._details.get(frigidaire.Detail.MODE)
+                mode_norm = _normalize_enum_value(mode)
+                _LOGGER.debug("MODE: raw=%s, normalized=%s, mapped=%s",
+                              mode,
+                              mode_norm,
+                              FRIGIDAIRE_TO_HA_MODE.get(mode_norm))
+                
+                fan_speed = self._details.get(frigidaire.Detail.FAN_SPEED)
+                fan_speed_norm = _normalize_enum_value(fan_speed)
+                _LOGGER.debug("FAN_SPEED: raw=%s, normalized=%s, mapped=%s",
+                              fan_speed,
+                              fan_speed_norm,
+                              FRIGIDAIRE_TO_HA_FAN_SPEED.get(fan_speed_norm))
+                
+                target_temp_f = self._details.get(frigidaire.Detail.TARGET_TEMPERATURE_F)
+                target_temp_c = self._details.get(frigidaire.Detail.TARGET_TEMPERATURE_C)
+                _LOGGER.debug("TARGET_TEMPERATURE: F=%s, C=%s", target_temp_f, target_temp_c)
+                
+                ambient_temp_f = self._details.get(frigidaire.Detail.AMBIENT_TEMPERATURE_F)
+                ambient_temp_c = self._details.get(frigidaire.Detail.AMBIENT_TEMPERATURE_C)
+                _LOGGER.debug("AMBIENT_TEMPERATURE: F=%s, C=%s", ambient_temp_f, ambient_temp_c)
+                
+                filter_state = self._details.get(frigidaire.Detail.FILTER_STATE)
+                filter_state_norm = _normalize_enum_value(filter_state)
+                _LOGGER.debug("FILTER_STATE: raw=%s, normalized=%s, is_change=%s",
+                              filter_state, filter_state_norm, filter_state_norm == "CHANGE")
+                
+                sleep_mode = self._details.get(frigidaire.Detail.SLEEP_MODE)
+                sleep_mode_norm = _normalize_enum_value(sleep_mode)
+                _LOGGER.debug("SLEEP_MODE: raw=%s, normalized=%s, mapped=%s",
+                              sleep_mode, sleep_mode_norm, FRIGIDAIRE_TO_HA_PRESET.get(sleep_mode_norm))
+                
+                vertical_swing = self._details.get(frigidaire.Detail.VERTICAL_SWING)
+                vertical_swing_norm = _normalize_enum_value(vertical_swing)
+                _LOGGER.debug("VERTICAL_SWING: raw=%s, normalized=%s, mapped=%s",
+                              vertical_swing, vertical_swing_norm, FRIGIDAIRE_TO_HA_SWING.get(vertical_swing_norm))
+            except Exception as e:
+                _LOGGER.error("Error logging detail mappings: %s", e)
