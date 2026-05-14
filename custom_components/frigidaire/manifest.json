@@ -12,5 +12,5 @@
   "requirements": [
     "frigidaire==0.18.43"
   ],
-  "version": "0.1.14"
+  "version": "0.1.15"
 }
