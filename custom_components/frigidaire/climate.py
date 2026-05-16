@@ -1,10 +1,10 @@
 """ClimateEntity for frigidaire integration."""
+
 from __future__ import annotations
 
 import logging
-from typing import Optional, List, Mapping, Any, Dict
-
-import frigidaire
+from collections.abc import Mapping
+from typing import Any
 
 from homeassistant.components.climate import ClimateEntity
 from homeassistant.components.climate.const import (
@@ -20,11 +20,14 @@ from homeassistant.components.climate.const import (
     HVACMode,
     HVACAction,
     ClimateEntityFeature,
+    HVACMode,
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import ATTR_TEMPERATURE, UnitOfTemperature
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+
+import frigidaire
 
 from .const import DOMAIN
 
@@ -40,18 +43,14 @@ def _normalize_enum_value(value):
     return value
 
 
-async def async_setup_entry(
-    hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
-) -> None:
+async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback) -> None:
     """Set up frigidaire from a config entry."""
     client = hass.data[DOMAIN][entry.entry_id]
 
-    def get_entities(username: str, password: str) -> List[frigidaire.Appliance]:
+    def get_entities(username: str, password: str) -> list[frigidaire.Appliance]:
         return client.get_appliances()
 
-    appliances = await hass.async_add_executor_job(
-        get_entities, entry.data["username"], entry.data["password"]
-    )
+    appliances = await hass.async_add_executor_job(get_entities, entry.data["username"], entry.data["password"])
 
     async_add_entities(
         [
@@ -138,7 +137,7 @@ class FrigidaireClimate(ClimateEntity):
 
         self._client: frigidaire.Frigidaire = client
         self._appliance: frigidaire.Appliance = appliance
-        self._details: Optional[Dict] = None
+        self._details: dict | None = None
 
         # Optimistic state overrides
         self._optimistic_hvac_mode: Optional[HVACMode] = None
@@ -151,12 +150,14 @@ class FrigidaireClimate(ClimateEntity):
         # Entity Class Attributes
         self._attr_unique_id = self._appliance.appliance_id
         self._attr_name = self._appliance.nickname
-        self._attr_supported_features = (ClimateEntityFeature.TARGET_TEMPERATURE |
-                                         ClimateEntityFeature.FAN_MODE |
-                                         ClimateEntityFeature.TURN_OFF |
-                                         ClimateEntityFeature.TURN_ON |
-                                         ClimateEntityFeature.SWING_MODE |
-                                         ClimateEntityFeature.PRESET_MODE)
+        self._attr_supported_features = (
+            ClimateEntityFeature.TARGET_TEMPERATURE
+            | ClimateEntityFeature.FAN_MODE
+            | ClimateEntityFeature.TURN_OFF
+            | ClimateEntityFeature.TURN_ON
+            | ClimateEntityFeature.SWING_MODE
+            | ClimateEntityFeature.PRESET_MODE
+        )
         self._attr_target_temperature_step = 1
 
         # Although we can access the Frigidaire API to get updates, they are
@@ -278,11 +279,9 @@ class FrigidaireClimate(ClimateEntity):
     def temperature_unit(self):
         """Return the unit of measurement which this thermostat uses."""
         if not self._details:
-            return UnitOfTemperature.CELSIUS  # Default to Celsius if we don't have details yet
+            return UnitOfTemperature.FAHRENHEIT  # Default to Fahrenheit if we don't have details yet
         
-        unit = _normalize_enum_value(self._details.get(
-            frigidaire.Detail.TEMPERATURE_REPRESENTATION
-        ))
+        unit = _normalize_enum_value(self._details.get(frigidaire.Detail.TEMPERATURE_REPRESENTATION))
 
         return FRIGIDAIRE_TO_HA_UNIT[unit]
     
@@ -368,11 +367,9 @@ class FrigidaireClimate(ClimateEntity):
         if not self._details:
             return None
         return {
-            "check_filter": bool(
-                _normalize_enum_value(self._details.get(frigidaire.Detail.FILTER_STATE)) == "CHANGE"
-            ),
+            "check_filter": bool(_normalize_enum_value(self._details.get(frigidaire.Detail.FILTER_STATE)) == "CHANGE"),
             "start_time": self._details.get(frigidaire.Detail.START_TIME),
-            "stop_time": self._details.get(frigidaire.Detail.STOP_TIME)
+            "stop_time": self._details.get(frigidaire.Detail.STOP_TIME),
         }
     
     def _is_optimistic(self) -> bool:
@@ -405,10 +402,7 @@ class FrigidaireClimate(ClimateEntity):
         temperature = int(temperature)
         temperature_unit = HA_TO_FRIGIDAIRE_UNIT[self.temperature_unit]
         _LOGGER.debug("Setting temperature to %s %s", temperature, self.temperature_unit)
-        self._client.execute_action(
-            self._appliance,
-            frigidaire.Action.set_temperature(temperature, temperature_unit),
-        )
+        self._client.execute_action(self._appliance, frigidaire.Action.set_temperature(temperature, temperature_unit))
         self._optimistic_temperature = float(temperature)
         self._set_optimistic_window()
         self.schedule_update_ha_state(force_refresh=False)
@@ -454,25 +448,18 @@ class FrigidaireClimate(ClimateEntity):
         _LOGGER.debug("Setting HVAC mode to %s", hvac_mode)
 
         if hvac_mode == HVACMode.OFF:
-            self._client.execute_action(
-                self._appliance,
-                frigidaire.Action.set_mode(frigidaire.Mode.OFF),
-            )
+            self._client.execute_action(self._appliance, frigidaire.Action.set_mode(frigidaire.Mode.OFF))
         else:
             if hvac_mode not in HA_TO_FRIGIDAIRE_HVAC_MODE:
                 return
             if _normalize_enum_value(self._details.get(frigidaire.Detail.MODE)) == frigidaire.Mode.OFF:
-                self._client.execute_action(
-                    self._appliance,
+                self._client.execute_action(self._appliance,
                     [
                         frigidaire.Action.set_power(frigidaire.Power.ON),
                         frigidaire.Action.set_temperature(int(self.target_temperature)),
                     ],
                 )
-            self._client.execute_action(
-                self._appliance,
-                frigidaire.Action.set_mode(HA_TO_FRIGIDAIRE_HVAC_MODE[hvac_mode]),
-            )
+            self._client.execute_action(self._appliance, frigidaire.Action.set_mode(HA_TO_FRIGIDAIRE_HVAC_MODE[hvac_mode]))
 
         self._optimistic_hvac_mode = hvac_mode
         self._set_optimistic_window()
