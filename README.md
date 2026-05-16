@@ -1,7 +1,7 @@
-[![](https://img.shields.io/github/release/kriodoxis/home-assistant-frigidaire/all.svg?style=for-the-badge)](https://github.com/kriodoxis/home-assistant-frigidaire/releases)
+[![](https://img.shields.io/github/release/bm1549/home-assistant-frigidaire/all.svg?style=for-the-badge)](https://github.com/bm1549/home-assistant-frigidaire/releases)
 [![hacs_badge](https://img.shields.io/badge/HACS-Default-orange.svg?style=for-the-badge)](https://github.com/custom-components/hacs)
 [![](https://img.shields.io/github/license/bm1549/home-assistant-frigidaire?style=for-the-badge)](LICENSE)
-[![](https://img.shields.io/badge/MAINTAINER-%40kriodoxis?style=for-the-badge)](https://github.com/bm1549)
+[![](https://img.shields.io/badge/MAINTAINER-%40bm154969-red?style=for-the-badge)](https://github.com/bm1549)
 [![](https://img.shields.io/badge/COMMUNITY-FORUM-success?style=for-the-badge)](https://community.home-assistant.io)
 
 # Home Assistant Custom Component for Frigidaire

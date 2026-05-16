@@ -2,13 +2,13 @@
   "domain": "frigidaire",
   "name": "frigidaire",
   "codeowners": [
-    "@kriodoxis"
+    "@bm1549"
   ],
   "config_flow": true,
   "dependencies": [],
-  "documentation": "https://github.com/kriodoxis/home-assistant-frigidaire",
+  "documentation": "https://github.com/bm1549/home-assistant-frigidaire",
   "iot_class": "cloud_polling",
-  "issue_tracker": "https://github.com/kriodoxis/home-assistant-frigidaire/issues",
+  "issue_tracker": "https://github.com/bm1549/home-assistant-frigidaire/issues",
   "requirements": [
     "frigidaire==0.18.44"
   ],
